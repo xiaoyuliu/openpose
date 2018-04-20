@@ -52,7 +52,10 @@ MANIFEST-*
 # QtCreator files
 *.user
 
-# PyCharm files
+# VSCode files
+.vscode
+
+# PyCharm/CLion files
 .idea
 
 # OSX dir files
@@ -131,3 +134,7 @@ html/
 
 ######################### Validation Scripts & Testing #########################
 output*/
+
+*.INFO
+*.WARNING
+cmake-build-debug/
