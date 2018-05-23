@@ -153,12 +153,8 @@ DEFINE_int32(3d_views,                  1,              "Complementary option to
                                                         " iteration, allowing tasks such as stereo camera processing (`--3d`). Note that"
                                                         " `--camera_parameters_folder` must be set. OpenPose must find as many `xml` files in the"
                                                         " parameter folder as this number indicates.");
-// Extra algorithms
-DEFINE_bool(identification,             false,          "Not available yet, coming soon. Whether to enable people identification across frames.");
-DEFINE_int32(tracking,                  -1,             "Not available yet, coming soon. Whether to enable people tracking across frames. The"
-                                                        " value indicates the number of frames where tracking is run between each OpenPose keypoint"
-                                                        " detection. Select -1 (default) to disable it or 0 to run simultaneously OpenPose keypoint"
-                                                        " detector and tracking for potentially higher accurary than only OpenPose.");
+// OpenPose identification
+DEFINE_bool(identification,             false,          "Whether to enable people identification across frames. Not available yet, coming soon.");
 // OpenPose Rendering
 DEFINE_int32(part_to_show,              0,              "Prediction channel to visualize (default: 0). 0 for all the body parts, 1-18 for each body"
                                                         " part heat map, 19 for the background heat map, 20 for all the body part heat maps"
@@ -220,6 +216,100 @@ DEFINE_string(write_keypoint_format,    "yml",          "(Deprecated, use `write
 DEFINE_string(write_keypoint_json,      "",             "(Deprecated, use `write_json`) Directory to write people pose data in JSON format,"
                                                         " compatible with any OpenCV version.");
 
+
+// If the user needs his own variables, he can inherit the op::Datum struct and add them
+// UserDatum can be directly used by the OpenPose wrapper because it inherits from op::Datum, just define
+// Wrapper<UserDatum> instead of Wrapper<op::Datum>
+struct UserDatum : public op::Datum
+{
+    bool boolThatUserNeedsForSomeReason;
+
+    UserDatum(const bool boolThatUserNeedsForSomeReason_ = false) :
+        boolThatUserNeedsForSomeReason{boolThatUserNeedsForSomeReason_}
+    {}
+};
+
+// The W-classes can be implemented either as a template or as simple classes given
+// that the user usually knows which kind of data he will move between the queues,
+// in this case we assume a std::shared_ptr of a std::vector of UserDatum
+
+// This worker will just read and return all the jpg files in a directory
+class WUserOutput : public op::WorkerConsumer<std::shared_ptr<std::vector<UserDatum>>>
+{
+public:
+    void initializationOnThread() {}
+
+    void workConsumer(const std::shared_ptr<std::vector<UserDatum>>& datumsPtr)
+    {
+        try
+        {
+            // User's displaying/saving/other processing here
+                // datum.cvOutputData: rendered frame with pose or heatmaps
+                // datum.poseKeypoints: Array<float> with the estimated pose
+            if (datumsPtr != nullptr && !datumsPtr->empty())
+            {
+                // Show in command line the resulting pose keypoints for body, face and hands
+                op::log("\nKeypoints:");
+                // Accesing each element of the keypoints
+                const auto& poseKeypoints = datumsPtr->at(0).poseKeypoints;
+                op::log("Person pose keypoints:");
+                for (auto person = 0 ; person < poseKeypoints.getSize(0) ; person++)
+                {
+                    op::log("Person " + std::to_string(person) + " (x, y, score):");
+                    for (auto bodyPart = 0 ; bodyPart < poseKeypoints.getSize(1) ; bodyPart++)
+                    {
+                        std::string valueToPrint;
+                        for (auto xyscore = 0 ; xyscore < poseKeypoints.getSize(2) ; xyscore++)
+                        {
+                            valueToPrint += std::to_string(   poseKeypoints[{person, bodyPart, xyscore}]   ) + " ";
+                        }
+                        op::log(valueToPrint);
+                    }
+                }
+                op::log(" ");
+                // Alternative: just getting std::string equivalent
+                op::log("Face keypoints: " + datumsPtr->at(0).faceKeypoints.toString());
+                op::log("Left hand keypoints: " + datumsPtr->at(0).handKeypoints[0].toString());
+                op::log("Right hand keypoints: " + datumsPtr->at(0).handKeypoints[1].toString());
+                // Heatmaps
+                const auto& poseHeatMaps = datumsPtr->at(0).poseHeatMaps;
+                if (!poseHeatMaps.empty())
+                {
+                    op::log("Pose heatmaps size: [" + std::to_string(poseHeatMaps.getSize(0)) + ", "
+                            + std::to_string(poseHeatMaps.getSize(1)) + ", "
+                            + std::to_string(poseHeatMaps.getSize(2)) + "]");
+                    const auto& faceHeatMaps = datumsPtr->at(0).faceHeatMaps;
+                    op::log("Face heatmaps size: [" + std::to_string(faceHeatMaps.getSize(0)) + ", "
+                            + std::to_string(faceHeatMaps.getSize(1)) + ", "
+                            + std::to_string(faceHeatMaps.getSize(2)) + ", "
+                            + std::to_string(faceHeatMaps.getSize(3)) + "]");
+                    const auto& handHeatMaps = datumsPtr->at(0).handHeatMaps;
+                    op::log("Left hand heatmaps size: [" + std::to_string(handHeatMaps[0].getSize(0)) + ", "
+                            + std::to_string(handHeatMaps[0].getSize(1)) + ", "
+                            + std::to_string(handHeatMaps[0].getSize(2)) + ", "
+                            + std::to_string(handHeatMaps[0].getSize(3)) + "]");
+                    op::log("Right hand heatmaps size: [" + std::to_string(handHeatMaps[1].getSize(0)) + ", "
+                            + std::to_string(handHeatMaps[1].getSize(1)) + ", "
+                            + std::to_string(handHeatMaps[1].getSize(2)) + ", "
+                            + std::to_string(handHeatMaps[1].getSize(3)) + "]");
+                }
+
+                // Display rendered output image
+                cv::imshow("User worker GUI", datumsPtr->at(0).cvOutputData);
+                // Display image and sleeps at least 1 ms (it usually sleeps ~5-10 msec to display the image)
+                const char key = (char)cv::waitKey(1);
+                if (key == 27)
+                    this->stop();
+            }
+        }
+        catch (const std::exception& e)
+        {
+            this->stop();
+            op::error(e.what(), __LINE__, __FUNCTION__, __FILE__);
+        }
+    }
+};
+
 int openPoseDemo()
 {
     // logging_level
@@ -272,7 +362,16 @@ int openPoseDemo()
 
     // OpenPose wrapper
     op::log("Configuring OpenPose wrapper.", op::Priority::Low, __LINE__, __FUNCTION__, __FILE__);
-    op::Wrapper<std::vector<op::Datum>> opWrapper;
+    // op::Wrapper<std::vector<op::Datum>> opWrapper;
+    op::Wrapper<std::vector<UserDatum>> opWrapper;
+
+    // Initializing the user custom classes
+    // GUI (Display)
+    auto wUserOutput = std::make_shared<WUserOutput>();
+    // Add custom processing
+    const auto workerOutputOnNewThread = true;
+    opWrapper.setWorkerOutput(wUserOutput, workerOutputOnNewThread);
+
     // Pose configuration (use WrapperStructPose{} for default and recommended configuration)
     const op::WrapperStructPose wrapperStructPose{!FLAGS_body_disable, netInputSize, outputSize, keypointScale,
                                                   FLAGS_num_gpu, FLAGS_num_gpu_start, FLAGS_scale_number,
@@ -283,7 +382,7 @@ int openPoseDemo()
                                                   heatMapTypes, heatMapScale, FLAGS_part_candidates,
                                                   (float)FLAGS_render_threshold, FLAGS_number_people_max,
                                                   enableGoogleLogging, FLAGS_3d, FLAGS_3d_min_views,
-                                                  FLAGS_identification, FLAGS_tracking};
+                                                  FLAGS_identification};
     // Face configuration (use op::WrapperStructFace{} to disable it)
     const op::WrapperStructFace wrapperStructFace{FLAGS_face, faceNetInputSize,
                                                   op::flagsToRenderMode(FLAGS_face_render, multipleView, FLAGS_render_pose),
@@ -300,8 +399,12 @@ int openPoseDemo()
                                                     FLAGS_process_real_time, FLAGS_frame_flip, FLAGS_frame_rotate,
                                                     FLAGS_frames_repeat};
     // Consumer (comment or use default argument to disable any output)
-    const op::WrapperStructOutput wrapperStructOutput{op::flagsToDisplayMode(FLAGS_display, FLAGS_3d),
-                                                      !FLAGS_no_gui_verbose, FLAGS_fullscreen, FLAGS_write_keypoint,
+    // const op::WrapperStructOutput wrapperStructOutput{op::flagsToDisplayMode(FLAGS_display, FLAGS_3d),
+    //                                                   !FLAGS_no_gui_verbose, FLAGS_fullscreen, FLAGS_write_keypoint,
+    const auto displayMode = op::DisplayMode::NoDisplay;
+    const bool guiVerbose = false;
+    const bool fullScreen = false;
+    const op::WrapperStructOutput wrapperStructOutput{displayMode, guiVerbose, fullScreen, FLAGS_write_keypoint,
                                                       op::stringToDataFormat(FLAGS_write_keypoint_format),
                                                       writeJson, FLAGS_write_coco_json,
                                                       FLAGS_write_images, FLAGS_write_images_format, FLAGS_write_video,

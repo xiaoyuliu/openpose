@@ -153,12 +153,8 @@ DEFINE_int32(3d_views,                  1,              "Complementary option to
                                                         " iteration, allowing tasks such as stereo camera processing (`--3d`). Note that"
                                                         " `--camera_parameters_folder` must be set. OpenPose must find as many `xml` files in the"
                                                         " parameter folder as this number indicates.");
-// Extra algorithms
-DEFINE_bool(identification,             false,          "Not available yet, coming soon. Whether to enable people identification across frames.");
-DEFINE_int32(tracking,                  -1,             "Not available yet, coming soon. Whether to enable people tracking across frames. The"
-                                                        " value indicates the number of frames where tracking is run between each OpenPose keypoint"
-                                                        " detection. Select -1 (default) to disable it or 0 to run simultaneously OpenPose keypoint"
-                                                        " detector and tracking for potentially higher accurary than only OpenPose.");
+// OpenPose identification
+DEFINE_bool(identification,             false,          "Whether to enable people identification across frames. Not available yet, coming soon.");
 // OpenPose Rendering
 DEFINE_int32(part_to_show,              0,              "Prediction channel to visualize (default: 0). 0 for all the body parts, 1-18 for each body"
                                                         " part heat map, 19 for the background heat map, 20 for all the body part heat maps"
@@ -220,6 +216,88 @@ DEFINE_string(write_keypoint_format,    "yml",          "(Deprecated, use `write
 DEFINE_string(write_keypoint_json,      "",             "(Deprecated, use `write_json`) Directory to write people pose data in JSON format,"
                                                         " compatible with any OpenCV version.");
 
+
+// If the user needs his own variables, he can inherit the op::Datum struct and add them
+// UserDatum can be directly used by the OpenPose wrapper because it inherits from op::Datum, just define
+// Wrapper<UserDatum> instead of Wrapper<op::Datum>
+struct UserDatum : public op::Datum
+{
+    bool boolThatUserNeedsForSomeReason;
+
+    UserDatum(const bool boolThatUserNeedsForSomeReason_ = false) :
+        boolThatUserNeedsForSomeReason{boolThatUserNeedsForSomeReason_}
+    {}
+};
+
+// The W-classes can be implemented either as a template or as simple classes given
+// that the user usually knows which kind of data he will move between the queues,
+// in this case we assume a std::shared_ptr of a std::vector of UserDatum
+
+// This worker will just read and return all the jpg files in a directory
+class WUserInput : public op::WorkerProducer<std::shared_ptr<std::vector<UserDatum>>>
+{
+public:
+    WUserInput(const std::string& directoryPath) :
+        mImageFiles{op::getFilesOnDirectory(directoryPath, "jpg")},
+        // If we want "jpg" + "png" images
+        // mImageFiles{op::getFilesOnDirectory(directoryPath, std::vector<std::string>{"jpg", "png"})},
+        mCounter{0}
+    {
+        if (mImageFiles.empty())
+            op::error("No images found on: " + directoryPath, __LINE__, __FUNCTION__, __FILE__);
+    }
+
+    void initializationOnThread() {}
+
+    std::shared_ptr<std::vector<UserDatum>> workProducer()
+    {
+        try
+        {
+            // Close program when empty frame
+            if (mImageFiles.size() <= mCounter)
+            {
+                op::log("Last frame read and added to queue. Closing program after it is processed.",
+                        op::Priority::High);
+                // This funtion stops this worker, which will eventually stop the whole thread system once all the
+                // frames have been processed
+                this->stop();
+                return nullptr;
+            }
+            else
+            {
+                // Create new datum
+                auto datumsPtr = std::make_shared<std::vector<UserDatum>>();
+                datumsPtr->emplace_back();
+                auto& datum = datumsPtr->at(0);
+
+                // Fill datum
+                datum.cvInputData = cv::imread(mImageFiles.at(mCounter++));
+
+                // If empty frame -> return nullptr
+                if (datum.cvInputData.empty())
+                {
+                    op::log("Empty frame detected on path: " + mImageFiles.at(mCounter-1) + ". Closing program.",
+                        op::Priority::High);
+                    this->stop();
+                    datumsPtr = nullptr;
+                }
+
+                return datumsPtr;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            this->stop();
+            op::error(e.what(), __LINE__, __FUNCTION__, __FILE__);
+            return nullptr;
+        }
+    }
+
+private:
+    const std::vector<std::string> mImageFiles;
+    unsigned long long mCounter;
+};
+
 int openPoseDemo()
 {
     // logging_level
@@ -272,7 +350,16 @@ int openPoseDemo()
 
     // OpenPose wrapper
     op::log("Configuring OpenPose wrapper.", op::Priority::Low, __LINE__, __FUNCTION__, __FILE__);
-    op::Wrapper<std::vector<op::Datum>> opWrapper;
+    // op::Wrapper<std::vector<op::Datum>> opWrapper;
+    op::Wrapper<std::vector<UserDatum>> opWrapper;
+
+    // Initializing the user custom classes
+    // Frames producer (e.g. video, webcam, ...)
+    auto wUserInput = std::make_shared<WUserInput>(FLAGS_image_dir);
+    // Add custom processing
+    const auto workerInputOnNewThread = true;
+    opWrapper.setWorkerInput(wUserInput, workerInputOnNewThread);
+
     // Pose configuration (use WrapperStructPose{} for default and recommended configuration)
     const op::WrapperStructPose wrapperStructPose{!FLAGS_body_disable, netInputSize, outputSize, keypointScale,
                                                   FLAGS_num_gpu, FLAGS_num_gpu_start, FLAGS_scale_number,
@@ -283,7 +370,7 @@ int openPoseDemo()
                                                   heatMapTypes, heatMapScale, FLAGS_part_candidates,
                                                   (float)FLAGS_render_threshold, FLAGS_number_people_max,
                                                   enableGoogleLogging, FLAGS_3d, FLAGS_3d_min_views,
-                                                  FLAGS_identification, FLAGS_tracking};
+                                                  FLAGS_identification};
     // Face configuration (use op::WrapperStructFace{} to disable it)
     const op::WrapperStructFace wrapperStructFace{FLAGS_face, faceNetInputSize,
                                                   op::flagsToRenderMode(FLAGS_face_render, multipleView, FLAGS_render_pose),
@@ -296,9 +383,10 @@ int openPoseDemo()
                                                   (float)FLAGS_hand_alpha_pose, (float)FLAGS_hand_alpha_heatmap,
                                                   (float)FLAGS_hand_render_threshold};
     // Producer (use default to disable any input)
-    const op::WrapperStructInput wrapperStructInput{producerSharedPtr, FLAGS_frame_first, FLAGS_frame_last,
-                                                    FLAGS_process_real_time, FLAGS_frame_flip, FLAGS_frame_rotate,
-                                                    FLAGS_frames_repeat};
+    // const op::WrapperStructInput wrapperStructInput{producerSharedPtr, FLAGS_frame_first, FLAGS_frame_last,
+    //                                                 FLAGS_process_real_time, FLAGS_frame_flip, FLAGS_frame_rotate,
+    //                                                 FLAGS_frames_repeat};
+    const op::WrapperStructInput wrapperStructInput;
     // Consumer (comment or use default argument to disable any output)
     const op::WrapperStructOutput wrapperStructOutput{op::flagsToDisplayMode(FLAGS_display, FLAGS_3d),
                                                       !FLAGS_no_gui_verbose, FLAGS_fullscreen, FLAGS_write_keypoint,

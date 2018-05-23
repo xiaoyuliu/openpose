@@ -1,26 +1,26 @@
-#ifndef OPENPOSE_HAND_W_HAND_EXTRACTOR_HPP
-#define OPENPOSE_HAND_W_HAND_EXTRACTOR_HPP
+#ifndef OPENPOSE_TRACKING_W_PERSON_ID_EXTRACTOR_HPP
+#define OPENPOSE_TRACKING_W_PERSON_ID_EXTRACTOR_HPP
 
 #include <openpose/core/common.hpp>
-#include <openpose/hand/handRenderer.hpp>
 #include <openpose/thread/worker.hpp>
+#include <openpose/tracking/personIdExtractor.hpp>
 
 namespace op
 {
     template<typename TDatums>
-    class WHandExtractor : public Worker<TDatums>
+    class WPersonIdExtractor : public Worker<TDatums>
     {
     public:
-        explicit WHandExtractor(const std::shared_ptr<HandExtractor>& handExtractor);
+        explicit WPersonIdExtractor(const std::shared_ptr<PersonIdExtractor>& personIdExtractor);
 
         void initializationOnThread();
 
         void work(TDatums& tDatums);
 
     private:
-        std::shared_ptr<HandExtractor> spHandExtractor;
+        std::shared_ptr<PersonIdExtractor> spPersonIdExtractor;
 
-        DELETE_COPY(WHandExtractor);
+        DELETE_COPY(WPersonIdExtractor);
     };
 }
 
@@ -33,19 +33,18 @@ namespace op
 namespace op
 {
     template<typename TDatums>
-    WHandExtractor<TDatums>::WHandExtractor(const std::shared_ptr<HandExtractor>& handExtractor) :
-        spHandExtractor{handExtractor}
+    WPersonIdExtractor<TDatums>::WPersonIdExtractor(const std::shared_ptr<PersonIdExtractor>& personIdExtractor) :
+        spPersonIdExtractor{personIdExtractor}
     {
     }
 
     template<typename TDatums>
-    void WHandExtractor<TDatums>::initializationOnThread()
+    void WPersonIdExtractor<TDatums>::initializationOnThread()
     {
-        spHandExtractor->initializationOnThread();
     }
 
     template<typename TDatums>
-    void WHandExtractor<TDatums>::work(TDatums& tDatums)
+    void WPersonIdExtractor<TDatums>::work(TDatums& tDatums)
     {
         try
         {
@@ -55,16 +54,9 @@ namespace op
                 dLog("", Priority::Low, __LINE__, __FUNCTION__, __FILE__);
                 // Profiling speed
                 const auto profilerKey = Profiler::timerInit(__LINE__, __FUNCTION__, __FILE__);
-                // Extract people hands
+                // Render people pose
                 for (auto& tDatum : *tDatums)
-                {
-                    spHandExtractor->forwardPass(tDatum.handRectangles, tDatum.cvInputData);
-                    for (auto hand = 0 ; hand < 2 ; hand++)
-                    {
-                        tDatum.handHeatMaps[hand] = spHandExtractor->getHeatMaps()[hand].clone();
-                        tDatum.handKeypoints[hand] = spHandExtractor->getHandKeypoints()[hand].clone();
-                    }
-                }
+                    tDatum.poseIds = spPersonIdExtractor->extractIds(tDatum.poseKeypoints, tDatum.cvInputData);
                 // Profiling speed
                 Profiler::timerEnd(profilerKey);
                 Profiler::printAveragedTimeMsOnIterationX(profilerKey, __LINE__, __FUNCTION__, __FILE__);
@@ -80,7 +72,7 @@ namespace op
         }
     }
 
-    COMPILE_TEMPLATE_DATUM(WHandExtractor);
+    COMPILE_TEMPLATE_DATUM(WPersonIdExtractor);
 }
 
-#endif // OPENPOSE_HAND_W_HAND_EXTRACTOR_HPP
+#endif // OPENPOSE_TRACKING_W_PERSON_ID_EXTRACTOR_HPP

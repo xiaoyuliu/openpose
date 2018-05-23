@@ -1,26 +1,26 @@
-#ifndef OPENPOSE_TRACKING_W_PERSON_ID_EXTRACTOR_HPP
-#define OPENPOSE_TRACKING_W_PERSON_ID_EXTRACTOR_HPP
+#ifndef OPENPOSE_HAND_W_HAND_EXTRACTOR_NET_HPP
+#define OPENPOSE_HAND_W_HAND_EXTRACTOR_NET_HPP
 
 #include <openpose/core/common.hpp>
+#include <openpose/hand/handRenderer.hpp>
 #include <openpose/thread/worker.hpp>
-#include <openpose/experimental/tracking/personIdExtractor.hpp>
 
 namespace op
 {
     template<typename TDatums>
-    class WPersonIdExtractor : public Worker<TDatums>
+    class WHandExtractorNet : public Worker<TDatums>
     {
     public:
-        explicit WPersonIdExtractor(const std::shared_ptr<PersonIdExtractor>& personIdExtractorSharedPtr);
+        explicit WHandExtractorNet(const std::shared_ptr<HandExtractorNet>& handExtractorNet);
 
         void initializationOnThread();
 
         void work(TDatums& tDatums);
 
     private:
-        std::shared_ptr<PersonIdExtractor> spPersonIdExtractor;
+        std::shared_ptr<HandExtractorNet> spHandExtractorNet;
 
-        DELETE_COPY(WPersonIdExtractor);
+        DELETE_COPY(WHandExtractorNet);
     };
 }
 
@@ -33,18 +33,19 @@ namespace op
 namespace op
 {
     template<typename TDatums>
-    WPersonIdExtractor<TDatums>::WPersonIdExtractor(const std::shared_ptr<PersonIdExtractor>& personIdExtractorSharedPtr) :
-        spPersonIdExtractor{personIdExtractorSharedPtr}
+    WHandExtractorNet<TDatums>::WHandExtractorNet(const std::shared_ptr<HandExtractorNet>& handExtractorNet) :
+        spHandExtractorNet{handExtractorNet}
     {
     }
 
     template<typename TDatums>
-    void WPersonIdExtractor<TDatums>::initializationOnThread()
+    void WHandExtractorNet<TDatums>::initializationOnThread()
     {
+        spHandExtractorNet->initializationOnThread();
     }
 
     template<typename TDatums>
-    void WPersonIdExtractor<TDatums>::work(TDatums& tDatums)
+    void WHandExtractorNet<TDatums>::work(TDatums& tDatums)
     {
         try
         {
@@ -54,9 +55,16 @@ namespace op
                 dLog("", Priority::Low, __LINE__, __FUNCTION__, __FILE__);
                 // Profiling speed
                 const auto profilerKey = Profiler::timerInit(__LINE__, __FUNCTION__, __FILE__);
-                // Render people pose
+                // Extract people hands
                 for (auto& tDatum : *tDatums)
-                    tDatum.poseIds = spPersonIdExtractor->extractIds(tDatum.poseKeypoints);
+                {
+                    spHandExtractorNet->forwardPass(tDatum.handRectangles, tDatum.cvInputData);
+                    for (auto hand = 0 ; hand < 2 ; hand++)
+                    {
+                        tDatum.handHeatMaps[hand] = spHandExtractorNet->getHeatMaps()[hand].clone();
+                        tDatum.handKeypoints[hand] = spHandExtractorNet->getHandKeypoints()[hand].clone();
+                    }
+                }
                 // Profiling speed
                 Profiler::timerEnd(profilerKey);
                 Profiler::printAveragedTimeMsOnIterationX(profilerKey, __LINE__, __FUNCTION__, __FILE__);
@@ -72,7 +80,7 @@ namespace op
         }
     }
 
-    COMPILE_TEMPLATE_DATUM(WPersonIdExtractor);
+    COMPILE_TEMPLATE_DATUM(WHandExtractorNet);
 }
 
-#endif // OPENPOSE_TRACKING_W_PERSON_ID_EXTRACTOR_HPP
+#endif // OPENPOSE_HAND_W_HAND_EXTRACTOR_NET_HPP
