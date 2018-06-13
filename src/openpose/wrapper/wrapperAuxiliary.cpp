@@ -59,8 +59,19 @@ namespace op
                     !wrapperStructOutput.writeImages.empty() || !wrapperStructOutput.writeVideo.empty()
                         || !wrapperStructOutput.writeKeypoint.empty() || !wrapperStructOutput.writeJson.empty()
                         || !wrapperStructOutput.writeCocoJson.empty() || !wrapperStructOutput.writeHeatMaps.empty()
+                        || !wrapperStructOutput.writeCocoFootJson.empty()
+                );
+                const auto savingCvOutput = (
+                    !wrapperStructOutput.writeImages.empty() || !wrapperStructOutput.writeVideo.empty()
                 );
                 const bool guiEnabled = (wrapperStructOutput.displayMode != DisplayMode::NoDisplay);
+                if (!guiEnabled && !savingCvOutput && renderOutput)
+                {
+                    const auto message = "GUI is not enabled and you are not saving the output frames. You should then"
+                                         " disable rendering for a faster code. I.e., add `--render_pose 0`."
+                                         + additionalMessage;
+                    error(message, __LINE__, __FUNCTION__, __FILE__);
+                }
                 if (!guiEnabled && !savingSomething)
                 {
                     const auto message = "No output is selected (`--display 0`) and no results are generated (no"
@@ -139,10 +150,10 @@ namespace op
                      || wrapperStructInput.producerSharedPtr->getType() == ProducerType::ImageDirectory)
                     // If netInputSize is -1
                     && (wrapperStructPose.netInputSize.x == -1 || wrapperStructPose.netInputSize.y == -1))
-                    error("Dynamic `--net_resolution` is not supported in MKL (CPU) and OpenCL Caffe versions. Please"
-                          " remove `-1` from `net_resolution` or use the Caffe master branch when processing images"
-                          " and when using your custom image reader.",
-                          __LINE__, __FUNCTION__, __FILE__);
+                    error("The default dynamic `--net_resolution` is not supported in MKL (CPU Caffe) and OpenCL Caffe"
+                          " versions. Please, use a static `net_resolution` (recommended `--net_resolution 656x368`)"
+                          " or use the Caffe CUDA master branch when processing images and/or when using your custom"
+                          " image reader.", __LINE__, __FUNCTION__, __FILE__);
             #endif
 
             log("", Priority::Low, __LINE__, __FUNCTION__, __FILE__);

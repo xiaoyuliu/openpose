@@ -14,20 +14,29 @@
     <img src="doc/media/pose_face_hands.gif", width="480">
 </p>
 
-**Functionality**:
-
-- **Real-time multi-person keypoint detection**.
-    - 15 or **18-keypoint body estimation**. **Running time invariant to number of detected people**.
-    - **2x21-keypoint hand** estimation. Currently, **running time depends** on **number of detected people**.
-    - **70-keypoint face** estimation. Currently, **running time depends** on **number of detected people**.
-- **Input**: Image, video, webcam, and IP camera. Included C++ demos to add your custom input.
+## Features
+- **Functionality**:
+    - **2D real-time multi-person keypoint detection**:
+        - 15 or **18-keypoint body keypoint estimation**. **Running time invariant to number of detected people**.
+        - **2x21-keypoint hand keypoint estimation**. Currently, **running time depends** on **number of detected people**.
+        - **70-keypoint face keypoint estimation**. Currently, **running time depends** on **number of detected people**.
+    - **3D real-time multi-person keypoint detection**:
+        - 3-D triangulation from multiple single views.
+        - Synchronization of Flir cameras handled.
+        - Compatible with Flir/Point Grey cameras, but provided C++ demos to add your custom input.
+    - **Calibration toolbox**:
+        - Easy estimation of distortion, intrinsic, and extrinsic camera parameters.
+- **Input**: Image, video, webcam, Flir/Point Grey and IP camera. Included C++ demos to add your custom input.
 - **Output**: Basic image + keypoint display/saving (PNG, JPG, AVI, ...), keypoint saving (JSON, XML, YML, ...), and/or keypoints as array class.
-- Available: command-line demo, C++ wrapper, and C++ API.
-- **OS**: Ubuntu (14, 16), Windows (8, 10), Nvidia TX2.
+- **OS**: Ubuntu (14, 16), Windows (8, 10), Mac OSX, Nvidia TX2.
+- **Others**:
+    - Available: command-line demo, C++ wrapper, and C++ API.
+    - CUDA (Nvidia GPU) and CPU versions.
 
 
 
 ## Latest Features
+- Jun 2018: [**Mac OSX version (CPU)**](doc/installation.md)!
 - Mar 2018: [**CPU version**](doc/installation.md#cpu-version)!
 - Mar 2018: Improved [**3-D keypoint reconstruction module**](doc/3d_reconstruction_demo.md) (from multiple camera views)!
 - Sep 2017: [**CMake**](doc/installation.md) installer and **IP camera** support!
@@ -93,6 +102,8 @@ Most users do not need the [OpenPose C++ API](#openpose-c-api), but they can sim
 bin\OpenPoseDemo.exe --video examples\media\video.avi
 ```
 
+- **Calibration toolbox**: To easily calibrate your cameras for 3-D OpenPose or any other stereo vision task. See [doc/calibration_demo.md](doc/calibration_demo.md).
+
 - **OpenPose Wrapper**: If you want to read a specific input, and/or add your custom post-processing function, and/or implement your own display/saving, check the `Wrapper` tutorial on [examples/tutorial_wrapper/](examples/tutorial_wrapper/). You can create your custom code on [examples/user_code/](examples/user_code/) and quickly compile it by using `make all` in the OpenPose folder (assuming Makefile installer).
 
 - **OpenPose C++ API**: See [doc/library_introduction.md](doc/library_introduction.md).
@@ -113,7 +124,7 @@ Output (format, keypoint index ordering, etc.) in [doc/output.md](doc/output.md)
 
 
 ## Speeding Up OpenPose and Benchmark
-Check the OpenPose Benchmark and some hints to speed up OpenPose on [doc/faq.md#speed-up-and-benchmark](doc/faq.md#speed-up-and-benchmark).
+Check the OpenPose Benchmark as well as some hints to speed up and/or reduce the memory requirements for OpenPose on [doc/faq.md#speed-up-memory-reduction-and-benchmark](doc/faq.md#speed-up-memory-reduction-and-benchmark).
 
 
 
