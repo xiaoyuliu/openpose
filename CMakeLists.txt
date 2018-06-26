@@ -131,7 +131,7 @@ set(GPU_MODE CUDA CACHE STRING "Select the acceleration GPU library or CPU other
 # else ()
 #   set_property(CACHE GPU_MODE PROPERTY STRINGS CPU_ONLY)
 # endif (CUDA_FOUND AND OpenCL_FOUND)
-set_property(CACHE GPU_MODE PROPERTY STRINGS CUDA CPU_ONLY)
+set_property(CACHE GPU_MODE PROPERTY STRINGS CUDA OPENCL CPU_ONLY)
 
 # Look for CUDA
 set(CUDA_FOUND FALSE)
@@ -205,6 +205,7 @@ if (UNIX AND NOT APPLE)
   option(WITH_CERES "Add Ceres support for advanced 3-D reconstruction." OFF)
 endif (UNIX AND NOT APPLE)
 option(WITH_FLIR_CAMERA "Add FLIR (formerly Point Grey) camera code (requires Spinnaker SDK already installed)." OFF)
+# option(WITH_3D_ADAM_MODEL "Add 3-D Adam model (requires OpenGL, Ceres, Eigen, OpenMP, FreeImage, GLEW, and IGL already installed)." OFF)
 
 # Set the acceleration library
 if (WIN32 OR APPLE)
@@ -221,17 +222,25 @@ endif (WIN32 OR APPLE)
 # endif (UNIX AND NOT APPLE)
 
 # Download the models
-option(DOWNLOAD_COCO_MODEL "Download COCO model." ON)
-option(DOWNLOAD_MPI_MODEL "Download MPI model." OFF)
-option(DOWNLOAD_HAND_MODEL "Download hand model." ON)
+option(DOWNLOAD_BODY_25_MODEL "Download body 25-keypoint (body COCO and 6-keypoint foot) model." ON)
+option(DOWNLOAD_BODY_COCO_MODEL "Download body 18-keypoint COCO model." OFF)
+option(DOWNLOAD_BODY_MPI_MODEL "Download body 15-keypoint MPI model." OFF)
 option(DOWNLOAD_FACE_MODEL "Download face model." ON)
+option(DOWNLOAD_HAND_MODEL "Download hand model." ON)
+
+# Asio
+# option(USE_ASIO "Include Asio header-only library." OFF)
 
 # More options
 option(BUILD_EXAMPLES "Build OpenPose examples." ON)
 option(BUILD_DOCS "Build OpenPose documentation." OFF)
+option(BUILD_PYTHON "Build OpenPose python." OFF)
+if (WIN32)
+  option(BUILD_DLL "Copy all required DLL files into the same folder." ON)
+endif ()
 
 # Build as shared library
-option(BUILD_SHARED_LIBS "Build as shared lib" ON)
+option(BUILD_SHARED_LIBS "Build as shared lib." ON)
 
 # Speed profiler
 option(PROFILER_ENABLED "If enabled, OpenPose will be able to print out speed information at runtime." OFF)
@@ -262,20 +271,24 @@ endif (${GPU_MODE} MATCHES "CUDA")
 # Adding 3D
 if (WITH_3D_RENDERER)
   # OpenPose flags
-  add_definitions(-DWITH_3D_RENDERER)
+  add_definitions(-DUSE_3D_RENDERER)
 endif (WITH_3D_RENDERER)
 if (WITH_CERES)
-  add_definitions(-DWITH_CERES)
+  add_definitions(-DUSE_CERES)
 endif (WITH_CERES)
 if (WITH_FLIR_CAMERA)
   # OpenPose flags
-  add_definitions(-DWITH_FLIR_CAMERA)
+  add_definitions(-DUSE_FLIR_CAMERA)
 endif (WITH_FLIR_CAMERA)
+if (WITH_3D_ADAM_MODEL)
+  # OpenPose flags
+  add_definitions(-DUSE_3D_ADAM_MODEL)
+endif (WITH_3D_ADAM_MODEL)
 
 # Adding tracking
 if (WITH_TRACKING)
   # OpenPose flags
-  add_definitions(-DWITH_TRACKING)
+  add_definitions(-DUSE_TRACKING)
 endif (WITH_TRACKING)
 
 # Calibration
@@ -287,7 +300,7 @@ if (${WITH_EIGEN} MATCHES "NONE")
 # If Eigen used
 else (${WITH_EIGEN} MATCHES "NONE")
   # OpenPose flags
-  add_definitions(-DWITH_EIGEN)
+  add_definitions(-DUSE_EIGEN)
   # OpenPose download/builds Eigen
   if (${WITH_EIGEN} MATCHES "BUILD")
     # Download it
@@ -337,6 +350,20 @@ if (UNIX OR APPLE)
         the Spinnaker includes and libs.")
     endif (NOT SPINNAKER_FOUND)
   endif (WITH_FLIR_CAMERA)
+  if (WITH_3D_ADAM_MODEL)
+    find_package(PkgConfig)
+    pkg_check_modules(EIGEN3 REQUIRED eigen3)
+    find_package(Ceres REQUIRED COMPONENTS SuiteSparse)
+    find_package(GLEW REQUIRED)
+    find_package(GLUT REQUIRED)
+    find_package(LIBIGL REQUIRED)
+    find_package(OpenGL REQUIRED)
+    find_package(OpenMP REQUIRED)
+    FIND_LIBRARY(FREE_IMAGE_LIBRARY NAMES libfreeimage.so)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+  endif (WITH_3D_ADAM_MODEL)
 
   # OpenMP
   if (${GPU_MODE} MATCHES "CPU_ONLY")
@@ -398,7 +425,7 @@ if (WIN32)
 
   # Download required zip files
   download_zip("opencv_310.zip" ${OP_WIN_URL} ${FIND_LIB_PREFIX} 1e5240a64b814b3c0b822f136be78ad7)
-  download_zip("caffe3rdparty_2018_02_13.zip" ${OP_WIN_URL} ${FIND_LIB_PREFIX} 6653E07E3D2D7226D64FAD2DF0B407FB)
+  download_zip("caffe3rdparty_2018_06_26.zip" ${OP_WIN_URL} ${FIND_LIB_PREFIX} 892A39C0CFBAA11CA8648B125852E01F)
   if (${GPU_MODE} MATCHES "OPENCL")
     download_zip("caffe_opencl_2018_02_13.zip" ${OP_WIN_URL} ${FIND_LIB_PREFIX} 3ac3e1acf5ee6a4e57920be73053067a)
   elseif (${GPU_MODE} MATCHES "CPU_ONLY")
@@ -443,14 +470,18 @@ if (WIN32)
       find_library(Caffe_Proto_LIB caffeproto HINTS ${FIND_LIB_PREFIX}/caffe/lib)
     endif (${GPU_MODE} MATCHES "CPU_ONLY")
   endif (${GPU_MODE} MATCHES "OPENCL")
-
-  if (${GPU_MODE} MATCHES "OPENCL")
-    unset(BOOST_SYSTEM_LIB_RELEASE CACHE)
-    unset(BOOST_SYSTEM_LIB_DEBUG CACHE)
-    find_library(BOOST_SYSTEM_LIB_RELEASE boost_system-vc140-mt-1_61 HINTS ${FIND_LIB_PREFIX}/caffe3rdparty/lib)
-    find_library(BOOST_SYSTEM_LIB_DEBUG boost_system-vc140-mt-gd-1_61 HINTS ${FIND_LIB_PREFIX}/caffe3rdparty/lib)
-  endif (${GPU_MODE} MATCHES "OPENCL")
-
+  # Boost DepCopy over required DLL F
+  if (${GPU_MODE} MATCHES "CPU_ONLY" OR ${GPU_MODE} MATCHES "OPENCL" OR BUILD_PYTHON)
+      find_library(BOOST_SYSTEM_LIB_RELEASE libboost_system-vc140-mt-1_61 HINTS ${FIND_LIB_PREFIX}/caffe3rdparty/lib)
+      find_library(BOOST_SYSTEM_LIB_DEBUG libboost_system-vc140-mt-gd-1_61 HINTS ${FIND_LIB_PREFIX}/caffe3rdparty/lib)
+      find_library(BOOST_FILESYSTEM_LIB_RELEASE libboost_filesystem-vc140-mt-1_61 HINTS ${FIND_LIB_PREFIX}/caffe3rdparty/lib)
+      find_library(BOOST_FILESYSTEM_LIB_DEBUG libboost_filesystem-vc140-mt-gd-1_61 HINTS ${FIND_LIB_PREFIX}/caffe3rdparty/lib)
+  else ()
+      set(BOOST_SYSTEM_LIB_RELEASE "")
+      set(BOOST_SYSTEM_LIB_DEBUG "")
+      set(BOOST_FILESYSTEM_LIB_RELEASE "")
+      set(BOOST_FILESYSTEM_LIB_DEBUG "")
+  endif ()
   if (WITH_3D_RENDERER)
     find_library(GLUT_LIBRARY freeglut HINTS ${FIND_LIB_PREFIX}/freeglut/lib)
     message(STATUS "\${GLUT_LIBRARY} = ${GLUT_LIBRARY}")
@@ -483,6 +514,32 @@ if (WIN32)
     set(SPINNAKER_INCLUDE_DIRS "3rdparty/windows/spinnaker/include")
   endif (WITH_FLIR_CAMERA)
   set(Caffe_FOUND 1)
+
+  # Build DLL Must be on if Build Python is on
+  if (BUILD_PYTHON)
+    if (NOT BUILD_DLL)
+      message(FATAL_ERROR "BUILD_DLL must be turned on to as well to build python library")
+    endif ()
+  endif ()
+
+  # Auto copy DLLs
+  if (BUILD_DLL)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+    # Auto copy DLLs
+    if (${GPU_MODE} MATCHES "CUDA")
+      file(GLOB CAFFE_DLL "${CMAKE_SOURCE_DIR}/3rdparty/windows/caffe/bin/*.dll")
+    elseif (${GPU_MODE} MATCHES "OPENCL")
+      file(GLOB CAFFE_DLL "${CMAKE_SOURCE_DIR}/3rdparty/windows/caffe_opencl/bin/*.dll")
+    elseif (${GPU_MODE} MATCHES "CPU_ONLY")
+      file(GLOB CAFFE_DLL "${CMAKE_SOURCE_DIR}/3rdparty/windows/caffe_cpu/bin/*.dll")
+    endif ()
+    file(GLOB OPENCV_DLL "${CMAKE_SOURCE_DIR}/3rdparty/windows/opencv/x64/vc14/bin/*.dll")
+    file(GLOB OPENCV3PTY_DLL "${CMAKE_SOURCE_DIR}/3rdparty/windows/caffe3rdparty/lib/*.dll")
+    file(COPY ${CAFFE_DLL} DESTINATION ${CMAKE_BINARY_DIR}/lib)
+    file(COPY ${OPENCV_DLL} DESTINATION ${CMAKE_BINARY_DIR}/lib)
+    file(COPY ${OPENCV3PTY_DLL} DESTINATION ${CMAKE_BINARY_DIR}/lib)
+  endif ()
+
 endif (WIN32)
 
 
@@ -634,6 +691,14 @@ include_directories(
   ${GLOG_INCLUDE_DIR}
   ${OpenCV_INCLUDE_DIRS})
 
+if (USE_ASIO)
+  include_directories(${CMAKE_SOURCE_DIR}/3rdparty/asio/include/)
+  # OpenPose flags
+  add_definitions(-DUSE_ASIO)
+  # Tell Asio it is not using Boost
+  add_definitions(-DASIO_STANDALONE)
+endif (USE_ASIO)
+
 # Calibration
 if (NOT ${WITH_EIGEN} MATCHES "NONE")
   include_directories(
@@ -672,6 +737,14 @@ endif (WITH_CERES)
 if (WITH_FLIR_CAMERA)
   include_directories(${SPINNAKER_INCLUDE_DIRS})
 endif (WITH_FLIR_CAMERA)
+if (WITH_3D_ADAM_MODEL)
+                                    include_directories(include/adam) # TEMPORARY - TO BE REMOVED IN THE FUTURE
+  include_directories(${CERES_INCLUDE_DIRS})
+  include_directories(${EIGEN3_INCLUDE_DIRS})
+  include_directories(${IGL_INCLUDE_DIRS})
+  include_directories(${LIBIGL_INCLUDE_DIRS})
+  include_directories(${OPENGL_INCLUDE_DIRS} ${GLUT_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS})
+endif (WITH_3D_ADAM_MODEL)
 # Windows includes
 if (WIN32)
   include_directories(
@@ -699,12 +772,21 @@ if (USE_MKL)
 endif (USE_MKL)
 if (${GPU_MODE} MATCHES "OPENCL")
   set(OpenPose_3rdparty_libraries ${OpenPose_3rdparty_libraries} ${CMAKE_THREAD_LIBS_INIT} ${OpenCL_LIBRARIES})
-  if (WIN32)
-    set(OpenPose_3rdparty_libraries ${OpenPose_3rdparty_libraries}
-        debug ${BOOST_SYSTEM_LIB_DEBUG} optimized ${BOOST_SYSTEM_LIB_RELEASE})
-  endif (WIN32)
 endif (${GPU_MODE} MATCHES "OPENCL")
+# Boost
+if (WIN32)
+    if (${GPU_MODE} MATCHES "CPU_ONLY" OR ${GPU_MODE} MATCHES "OPENCL" OR BUILD_PYTHON)
+    set(OpenPose_3rdparty_libraries ${OpenPose_3rdparty_libraries}
+        debug ${BOOST_SYSTEM_LIB_RELEASE} optimized ${BOOST_SYSTEM_LIB_RELEASE})
+        set(OpenPose_3rdparty_libraries ${OpenPose_3rdparty_libraries}
+        debug ${BOOST_FILESYSTEM_LIB_RELEASE} optimized ${BOOST_FILESYSTEM_LIB_RELEASE})
+    endif ()
+endif (WIN32)
 # 3-D
+if (WITH_3D_ADAM_MODEL)
+  set(OpenPose_3rdparty_libraries ${OpenPose_3rdparty_libraries}
+      ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${GLEW_LIBRARY} ${FREE_IMAGE_LIBRARY})
+endif (WITH_3D_ADAM_MODEL)
 if (WITH_3D_RENDERER)
   set(OpenPose_3rdparty_libraries ${OpenPose_3rdparty_libraries} ${GLUT_LIBRARY})
 endif (WITH_3D_RENDERER)
@@ -738,9 +820,11 @@ message(STATUS "Download the models.")
 # URL to the models
 set(OPENPOSE_URL "http://posefs1.perception.cs.cmu.edu/OpenPose/models/")
 
-download_model("body (COCO)" ${DOWNLOAD_COCO_MODEL} pose/coco/pose_iter_440000.caffemodel
+download_model("BODY_25" ${DOWNLOAD_BODY_25_MODEL} pose/body_25/pose_iter_584000.caffemodel
+  78287B57CF85FA89C03F1393D368E5B7) # Body (BODY_25)
+download_model("body (COCO)" ${DOWNLOAD_BODY_COCO_MODEL} pose/coco/pose_iter_440000.caffemodel
   5156d31f670511fce9b4e28b403f2939) # Body (COCO)
-download_model("body (MPI)" ${DOWNLOAD_MPI_MODEL} pose/mpi/pose_iter_160000.caffemodel
+download_model("body (MPI)" ${DOWNLOAD_BODY_MPI_MODEL} pose/mpi/pose_iter_160000.caffemodel
   2ca0990c7562bd7ae03f3f54afa96e00) # Body (MPI)
 download_model("face" ${DOWNLOAD_FACE_MODEL} face/pose_iter_116000.caffemodel
   e747180d728fa4e4418c465828384333) # Face
@@ -749,6 +833,12 @@ download_model("hand" ${DOWNLOAD_HAND_MODEL} hand/pose_iter_102000.caffemodel
 
 message(STATUS "Models Downloaded.")
 
+### PYTHON
+if (Caffe_FOUND)
+  if(BUILD_PYTHON)
+    add_subdirectory(python)
+  endif ()
+endif()
 
 ### GENERATE DOCUMENTATION
 if (UNIX OR APPLE)
